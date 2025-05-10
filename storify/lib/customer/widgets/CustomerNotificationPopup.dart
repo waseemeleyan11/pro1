@@ -5,21 +5,21 @@ import 'package:intl/intl.dart';
 import 'package:storify/utilis/notificationModel.dart';
 import 'package:storify/utilis/notification_service.dart';
 
-class SupplierNotificationPopup extends StatefulWidget {
+class CustomerNotificationPopup extends StatefulWidget {
   final Function onCloseMenu;
   final List<NotificationItem> notifications;
 
-  const SupplierNotificationPopup({
+  const CustomerNotificationPopup({
     Key? key,
     required this.onCloseMenu,
     required this.notifications,
   }) : super(key: key);
 
   @override
-  State<SupplierNotificationPopup> createState() => _SupplierNotificationPopupState();
+  State<CustomerNotificationPopup> createState() => _CustomerNotificationPopupState();
 }
 
-class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
+class _CustomerNotificationPopupState extends State<CustomerNotificationPopup> {
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -131,7 +131,7 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
           ),
           SizedBox(height: 8.h),
           Text(
-            'You\'ll see notifications here when there are new orders',
+            'You\'ll see notifications here when there are updates to your orders',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14.sp,
@@ -156,10 +156,10 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
           // Navigate to related item (e.g., order details)
           print('Navigate to order with ID: ${notification.relatedId}');
           
-          // Example navigation to order details
+          // Example navigation to order tracking
           // Navigator.of(context).push(
           //   MaterialPageRoute(
-          //     builder: (context) => ViewOrderScreen(orderId: notification.relatedId!),
+          //     builder: (context) => OrderTrackingScreen(orderId: notification.relatedId!),
           //   ),
           // );
         }
@@ -172,18 +172,18 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Notification icon
+            // Notification icon with status color
             Container(
               width: 40.w,
               height: 40.h,
               decoration: BoxDecoration(
-                color: const Color.fromARGB(255, 105, 65, 198).withOpacity(0.1),
+                color: _getStatusColor(notification.message).withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Center(
                 child: Icon(
-                  Icons.shopping_cart_outlined,
-                  color: const Color.fromARGB(255, 105, 65, 198),
+                  _getStatusIcon(notification.message),
+                  color: _getStatusColor(notification.message),
                   size: 20.sp,
                 ),
               ),
@@ -215,8 +215,8 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
                         Container(
                           width: 8.w,
                           height: 8.h,
-                          decoration: const BoxDecoration(
-                            color: Color.fromARGB(255, 105, 65, 198),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(notification.message),
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -240,32 +240,30 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
                       color: Colors.white54,
                     ),
                   ),
-                  if (notification.title.contains('New Order') && !notification.isRead)
+                  if (notification.relatedId != null && !notification.isRead)
                     Padding(
                       padding: EdgeInsets.only(top: 8.h),
                       child: Row(
                         children: [
                           ElevatedButton(
                             onPressed: () {
-                              // Navigate to view order screen
-                              if (notification.relatedId != null) {
-                                print('Navigate to view order: ${notification.relatedId}');
-                                // Implement navigation to order details
-                                // Navigator.of(context).push(
-                                //   MaterialPageRoute(
-                                //     builder: (context) => ViewOrderScreen(orderId: notification.relatedId!),
-                                //   ),
-                                // );
-                              }
+                              // Navigate to track order screen
+                              print('Navigate to track order: ${notification.relatedId}');
+                              // Implement navigation to order tracking
+                              // Navigator.of(context).push(
+                              //   MaterialPageRoute(
+                              //     builder: (context) => OrderTrackingScreen(orderId: notification.relatedId!),
+                              //   ),
+                              // );
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color.fromARGB(255, 105, 65, 198),
+                              backgroundColor: _getStatusColor(notification.message),
                               padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
                             child: Text(
-                              'View Order',
+                              'Track Order',
                               style: GoogleFonts.spaceGrotesk(
                                 fontSize: 12.sp,
                                 color: Colors.white,
@@ -282,5 +280,29 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
         ),
       ),
     );
+  }
+
+  Color _getStatusColor(String message) {
+    if (message.contains('prepared')) {
+      return Colors.amber;
+    } else if (message.contains('on the way')) {
+      return Colors.purple;
+    } else if (message.contains('delivered')) {
+      return Colors.green;
+    } else {
+      return const Color.fromARGB(255, 105, 65, 198);
+    }
+  }
+
+  IconData _getStatusIcon(String message) {
+    if (message.contains('prepared')) {
+      return Icons.inventory_2_outlined;
+    } else if (message.contains('on the way')) {
+      return Icons.local_shipping_outlined;
+    } else if (message.contains('delivered')) {
+      return Icons.done_all;
+    } else {
+      return Icons.notifications_outlined;
+    }
   }
 }

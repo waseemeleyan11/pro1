@@ -5,21 +5,21 @@ import 'package:intl/intl.dart';
 import 'package:storify/utilis/notificationModel.dart';
 import 'package:storify/utilis/notification_service.dart';
 
-class SupplierNotificationPopup extends StatefulWidget {
+class NotificationPopup extends StatefulWidget {
   final Function onCloseMenu;
   final List<NotificationItem> notifications;
 
-  const SupplierNotificationPopup({
+  const NotificationPopup({
     Key? key,
     required this.onCloseMenu,
     required this.notifications,
   }) : super(key: key);
 
   @override
-  State<SupplierNotificationPopup> createState() => _SupplierNotificationPopupState();
+  State<NotificationPopup> createState() => _NotificationPopupState();
 }
 
-class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
+class _NotificationPopupState extends State<NotificationPopup> {
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -131,7 +131,7 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
           ),
           SizedBox(height: 8.h),
           Text(
-            'You\'ll see notifications here when there are new orders',
+            'You\'ll see notifications here when there are updates',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14.sp,
@@ -154,7 +154,7 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
         // Handle navigation or other actions based on notification type
         if (notification.relatedId != null) {
           // Navigate to related item (e.g., order details)
-          print('Navigate to order with ID: ${notification.relatedId}');
+          print('Navigate to item with ID: ${notification.relatedId}');
           
           // Example navigation to order details
           // Navigator.of(context).push(
@@ -182,7 +182,7 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
               ),
               child: Center(
                 child: Icon(
-                  Icons.shopping_cart_outlined,
+                  _getNotificationIcon(notification.title),
                   color: const Color.fromARGB(255, 105, 65, 198),
                   size: 20.sp,
                 ),
@@ -240,23 +240,18 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
                       color: Colors.white54,
                     ),
                   ),
-                  if (notification.title.contains('New Order') && !notification.isRead)
+                  if (notification.relatedId != null && 
+                      (notification.title.contains('Accepted') || 
+                       notification.title.contains('Rejected')))
                     Padding(
                       padding: EdgeInsets.only(top: 8.h),
                       child: Row(
                         children: [
                           ElevatedButton(
                             onPressed: () {
-                              // Navigate to view order screen
-                              if (notification.relatedId != null) {
-                                print('Navigate to view order: ${notification.relatedId}');
-                                // Implement navigation to order details
-                                // Navigator.of(context).push(
-                                //   MaterialPageRoute(
-                                //     builder: (context) => ViewOrderScreen(orderId: notification.relatedId!),
-                                //   ),
-                                // );
-                              }
+                              // Navigate to order details
+                              print('Navigate to order: ${notification.relatedId}');
+                              // Implement navigation to order details
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color.fromARGB(255, 105, 65, 198),
@@ -282,5 +277,19 @@ class _SupplierNotificationPopupState extends State<SupplierNotificationPopup> {
         ),
       ),
     );
+  }
+
+  IconData _getNotificationIcon(String title) {
+    if (title.contains('Order Created')) {
+      return Icons.shopping_cart_outlined;
+    } else if (title.contains('Accepted')) {
+      return Icons.check_circle_outline;
+    } else if (title.contains('Rejected')) {
+      return Icons.cancel_outlined;
+    } else if (title.contains('Status')) {
+      return Icons.local_shipping_outlined;
+    } else {
+      return Icons.notifications_outlined;
+    }
   }
 }

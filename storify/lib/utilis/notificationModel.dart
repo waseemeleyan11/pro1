@@ -1,38 +1,51 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NotificationItem {
   final String id;
   final String title;
   final String message;
-  final String timeAgo;
-  final IconData? icon;
-  final Color? iconBackgroundColor;
+  final String userRole; // 'admin', 'supplier', 'customer', or 'all'
+  final String userId; // Optional: specific user ID if needed
+  final DateTime timestamp;
   final bool isRead;
-  final Function()? onTap;
+  final String? relatedId; // Order ID, product ID, etc.
 
   NotificationItem({
     required this.id,
     required this.title,
     required this.message,
-    required this.timeAgo,
-    this.icon,
-    this.iconBackgroundColor,
+    required this.userRole,
+    this.userId = '',
+    required this.timestamp,
     this.isRead = false,
-    this.onTap,
+    this.relatedId,
   });
 
-  // Create from a Firebase message
-  factory NotificationItem.fromFirebaseMessage(RemoteMessage message) {
-    final notification = message.notification;
-    final data = message.data;
-    
+  factory NotificationItem.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     return NotificationItem(
-      id: message.messageId ?? DateTime.now().toString(),
-      title: notification?.title ?? 'New Notification',
-      message: notification?.body ?? 'You have a new notification',
-      timeAgo: 'Just now', // You'll need to calculate this
-      isRead: false,
+      id: doc.id,
+      title: data['title'] ?? 'Notification',
+      message: data['message'] ?? '',
+      userRole: data['userRole'] ?? 'all',
+      userId: data['userId'] ?? '',
+      timestamp: data['timestamp'] != null
+          ? (data['timestamp'] as Timestamp).toDate()
+          : DateTime.now(),
+      isRead: data['read'] ?? false,
+      relatedId: data['relatedId'],
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'message': message,
+      'userRole': userRole,
+      'userId': userId,
+      'timestamp': FieldValue.serverTimestamp(),
+      'read': isRead,
+      'relatedId': relatedId,
+    };
   }
 }

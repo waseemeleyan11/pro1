@@ -1,242 +1,197 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter_svg/svg.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:storify/GeneralWidgets/profilePopUp.dart';
+import 'package:storify/utilis/notification_service.dart';
 import 'package:storify/utilis/notificationModel.dart';
-import 'package:storify/utilis/notificationPopUpAdmin.dart';
+import 'package:storify/admin/widgets/NotificationPopup.dart';
 
-class MyNavigationBar extends StatefulWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-  final String? profilePictureUrl; // Add this parameter
+class AdminNavigationBar extends StatefulWidget {
+  final int selectedIndex;
+  final Function(int) onItemSelected;
 
-  const MyNavigationBar({
+  const AdminNavigationBar({
     Key? key,
-    required this.currentIndex,
-    required this.onTap,
-    this.profilePictureUrl, // Initialize it as optional
+    required this.selectedIndex,
+    required this.onItemSelected,
   }) : super(key: key);
 
   @override
-  State<MyNavigationBar> createState() => _MyNavigationBarState();
+  State<AdminNavigationBar> createState() => _AdminNavigationBarState();
 }
 
-OverlayEntry? _notificationOverlayEntry;
-bool _isNotificationMenuOpen = false;
-List<NotificationItem> _notifications =
-    []; // This will store your notifications
+class _AdminNavigationBarState extends State<AdminNavigationBar> {
+  bool _showNotifications = false;
+  List<NotificationItem> _notifications = [];
+  int _unreadCount = 0;
 
-class _MyNavigationBarState extends State<MyNavigationBar> {
-  // (Optional) Key for the profile section
-  final GlobalKey _profileKey = GlobalKey();
-
-  OverlayEntry? _overlayEntry;
-  bool _isMenuOpen = false;
-
-  void _toggleProfileMenu() {
-    if (_isMenuOpen) {
-      _closeMenu();
-    } else {
-      _openMenu();
-    }
+  @override
+  void initState() {
+    super.initState();
+    _setupNotifications();
   }
 
-  void _openMenu() {
-    _overlayEntry = OverlayEntry(
-      builder: (BuildContext context) {
-        return Stack(
-          children: [
-            GestureDetector(
-              onTap: _closeMenu,
-              behavior: HitTestBehavior.translucent,
-              child: Container(
-                color: Colors.transparent,
-                width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.height,
-              ),
-            ),
-            Positioned(
-              right: 40,
-              top: 100,
-              child: Material(
-                color: Colors.transparent,
-                child: Profilepopup(
-                  onCloseMenu: _closeMenu, // Pass the close menu callback
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+  void _setupNotifications() {
+    // Register for notifications updates
+    NotificationService()
+        .registerNotificationsListChangedCallback(_onNotificationsChanged);
 
-    Overlay.of(context).insert(_overlayEntry!);
+    // Get initial unread count
+    _updateUnreadCount();
+  }
+
+  void _onNotificationsChanged(List<NotificationItem> notifications) {
     setState(() {
-      _isMenuOpen = true;
+      _notifications = notifications;
+      _unreadCount = notifications.where((n) => !n.isRead).length;
     });
   }
 
-  void _closeMenu() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+  Future<void> _updateUnreadCount() async {
+    final count = await NotificationService().getUnreadNotificationsCount();
     setState(() {
-      _isMenuOpen = false;
+      _unreadCount = count;
     });
+  }
+
+  @override
+  void dispose() {
+    // Unregister from notifications updates
+    NotificationService()
+        .unregisterNotificationsListChangedCallback(_onNotificationsChanged);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: EdgeInsets.only(top: 10.h),
-      width: double.infinity,
-      height: 90.h,
-      color: const Color.fromARGB(255, 29, 41, 57),
-      padding: EdgeInsets.only(left: 45, right: 30),
+      height: 64.h,
+      color: const Color.fromARGB(255, 36, 50, 69),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Left side: Logo + Title
-          Row(
-            children: [
-              SvgPicture.asset(
-                'assets/images/logo.svg',
-                width: 35.w,
-                height: 35.h,
-              ),
-              SizedBox(width: 12.w),
-              Text(
-                'Storify',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 24.sp,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
+          // Logo
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24.w),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.store,
+                  color: const Color.fromARGB(255, 105, 65, 198),
+                  size: 24.sp,
                 ),
-              ),
-            ],
-          ),
-
-          // Middle: Navigation Items
-          Row(
-            children: _buildNavItems(),
-          ),
-
-          // Right side: Search, Notifications, Profile
-          Row(
-            children: [
-              // Search
-              InkWell(
-                onTap: () {
-                  // Handle search
-                },
-                child: Container(
-                  width: 50.w,
-                  height: 52.h,
-                  decoration: BoxDecoration(
-                    color: const Color.fromARGB(255, 36, 50, 69),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(13.0),
-                    child: SvgPicture.asset('assets/images/search.svg'),
+                SizedBox(width: 8.w),
+                Text(
+                  'Storify',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 18.sp,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
-              ),
-              SizedBox(width: 14.w),
+                SizedBox(width: 4.w),
+                Text(
+                  'Admin',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
+          // Navigation items
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildNavItem(0, 'Dashboard', Icons.dashboard_outlined),
+                _buildNavItem(1, 'Orders', Icons.shopping_cart_outlined),
+                _buildNavItem(2, 'Products', Icons.inventory_2_outlined),
+                _buildNavItem(3, 'Suppliers', Icons.people_outline),
+                _buildNavItem(4, 'Customers', Icons.person_outline),
+                _buildNavItem(5, 'Reports', Icons.bar_chart_outlined),
+              ],
+            ),
+          ),
+
+          // Right side items
+          Row(
+            children: [
               // Notifications
-              InkWell(
-                onTap: _toggleNotificationMenu,
-                child: Container(
-                  width: 50.w,
-                  height: 52.h,
-                  decoration: BoxDecoration(
-                    color: const Color.fromARGB(255, 36, 50, 69),
-                    borderRadius: BorderRadius.circular(16),
+              Stack(
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.notifications_outlined,
+                      color: _showNotifications ? Colors.white : Colors.white70,
+                      size: 24.sp,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showNotifications = !_showNotifications;
+                      });
+                    },
                   ),
-                  child: Stack(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(13.0),
-                        child: SvgPicture.asset(
-                          'assets/images/noti.svg',
-                          width: 20.w,
-                          height: 20.h,
-                          color: _isNotificationMenuOpen
-                              ? const Color.fromARGB(255, 105, 65, 198)
-                              : const Color.fromARGB(255, 105, 123, 123),
+                  if (_unreadCount > 0)
+                    Positioned(
+                      top: 8.h,
+                      right: 8.w,
+                      child: Container(
+                        padding: EdgeInsets.all(4.w),
+                        decoration: const BoxDecoration(
+                          color: Color.fromARGB(255, 105, 65, 198),
+                          shape: BoxShape.circle,
                         ),
-                      ),
-                      if (_notifications.where((n) => !n.isRead).isNotEmpty)
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: Container(
-                            width: 10.w,
-                            height: 10.h,
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
+                        child: Text(
+                          _unreadCount > 9 ? '9+' : _unreadCount.toString(),
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 10.sp,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
                           ),
                         ),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(width: 14.w),
-              // Profile + Arrow
-              // Profile + Arrow
-              InkWell(
-                key: _profileKey,
-                onTap: _toggleProfileMenu,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                      ),
-                      child: ClipRRect(
-                        borderRadius:
-                            BorderRadius.circular(25), // Make it circular
-                        child: widget.profilePictureUrl != null &&
-                                widget.profilePictureUrl!.isNotEmpty
-                            ? CachedNetworkImage(
-                                imageUrl: widget.profilePictureUrl!,
-                                fit: BoxFit.cover,
-                                placeholder: (context, url) => Container(
-                                  color: const Color.fromARGB(255, 36, 50, 69),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: const Color.fromARGB(
-                                            255, 105, 65, 198),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                errorWidget: (context, url, error) {
-                                  print(
-                                      'Error loading profile image: $error from URL: $url');
-                                  return Image.asset('assets/images/me.png',
-                                      fit: BoxFit.cover);
-                                },
-                              )
-                            : Image.asset('assets/images/me.png',
-                                fit: BoxFit.cover),
                       ),
                     ),
-                    const SizedBox(width: 2),
-                    Icon(
-                      _isMenuOpen ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-                      size: 35,
-                      color: const Color.fromARGB(255, 105, 123, 123),
+                ],
+              ),
+
+              // Profile
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.w),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16.r,
+                      backgroundColor: const Color.fromARGB(255, 105, 65, 198)
+                          .withOpacity(0.2),
+                      child: Text(
+                        'A',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.w700,
+                          color: const Color.fromARGB(255, 105, 65, 198),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 8.w),
+                    Text(
+                      'Admin',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.keyboard_arrow_down,
+                        color: Colors.white70,
+                        size: 16.sp,
+                      ),
+                      onPressed: () {
+                        // Show profile menu
+                      },
                     ),
                   ],
                 ),
@@ -245,139 +200,213 @@ class _MyNavigationBarState extends State<MyNavigationBar> {
           ),
         ],
       ),
+      // Notification popup
+      // This is positioned below the navigation bar
+      // and will be shown when _showNotifications is true
     );
   }
 
-  /// Helper to build the middle navigation items
-  List<Widget> _buildNavItems() {
-    final List<String> navItems = [
-      'Dashboard',
-      'Products',
-      'Category',
-      'Orders',
-      "Role Managment",
-      'Tracking',
-    ];
+  Widget _buildNavItem(int index, String label, IconData icon) {
+    final isSelected = widget.selectedIndex == index;
 
-    final List<String?> navIcons = [
-      'assets/images/home.svg',
-      'assets/images/products.svg',
-      'assets/images/category.svg',
-      'assets/images/orders.svg',
-      'assets/images/Managment.svg',
-      'assets/images/map.svg',
-    ];
-
-    return navItems.asMap().entries.map((entry) {
-      final index = entry.key;
-      final text = entry.value;
-      final bool isSelected = (index == widget.currentIndex);
-
-      return MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: () => widget.onTap(index),
-          child: Container(
-            margin: EdgeInsets.only(left: 24.w),
-            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-            decoration: BoxDecoration(
+    return InkWell(
+      onTap: () => widget.onItemSelected(index),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
               color: isSelected
-                  ? const Color.fromARGB(255, 105, 65, 198) // Purple
+                  ? const Color.fromARGB(255, 105, 65, 198)
                   : Colors.transparent,
-              border: Border.all(
-                color: isSelected
-                    ? Colors.transparent
-                    : const Color.fromARGB(255, 34, 53, 62),
-                width: 1,
-              ),
-              borderRadius: BorderRadius.circular(30.r),
-            ),
-            child: Row(
-              children: [
-                if (navIcons[index] != null && navIcons[index]!.isNotEmpty)
-                  SvgPicture.asset(
-                    navIcons[index]!,
-                    width: 24.w,
-                    height: 24.h,
-                    // ignore: deprecated_member_use
-                    color: isSelected
-                        ? Colors.white
-                        : const Color.fromARGB(255, 105, 123, 123),
-                  ),
-                if (navIcons[index] != null && navIcons[index]!.isNotEmpty)
-                  SizedBox(width: 9.w),
-                Text(
-                  text,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 15.sp,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w700,
-                    color: isSelected
-                        ? Colors.white
-                        : const Color.fromARGB(255, 105, 123, 123),
-                  ),
-                ),
-              ],
+              width: 2,
             ),
           ),
         ),
-      );
-    }).toList();
-  }
-
-  void _toggleNotificationMenu() {
-    if (_isNotificationMenuOpen) {
-      _closeNotificationMenu();
-    } else {
-      _openNotificationMenu();
-    }
-  }
-
-  void _openNotificationMenu() {
-    // Close profile menu if open
-    if (_isMenuOpen) {
-      _closeMenu();
-    }
-
-    _notificationOverlayEntry = OverlayEntry(
-      builder: (BuildContext context) {
-        return Stack(
+        child: Row(
           children: [
-            GestureDetector(
-              onTap: _closeNotificationMenu,
-              behavior: HitTestBehavior.translucent,
-              child: Container(
-                color: Colors.transparent,
-                width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.height,
-              ),
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : Colors.white70,
+              size: 20.sp,
             ),
-            Positioned(
-              right: 100, // Adjust position as needed
-              top: 100,
-              child: Material(
-                color: Colors.transparent,
-                child: NotificationPopup(
-                  onCloseMenu: _closeNotificationMenu,
-                  notifications: _notifications,
-                ),
+            SizedBox(width: 8.w),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14.sp,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color: isSelected ? Colors.white : Colors.white70,
               ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
-
-    Overlay.of(context).insert(_notificationOverlayEntry!);
-    setState(() {
-      _isNotificationMenuOpen = true;
-    });
   }
 
-  void _closeNotificationMenu() {
-    _notificationOverlayEntry?.remove();
-    _notificationOverlayEntry = null;
-    setState(() {
-      _isNotificationMenuOpen = false;
-    });
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Navigation bar
+        Container(
+          height: 64.h,
+          color: const Color.fromARGB(255, 36, 50, 69),
+          child: Row(
+            children: [
+              // Logo
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.w),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.store,
+                      color: const Color.fromARGB(255, 105, 65, 198),
+                      size: 24.sp,
+                    ),
+                    SizedBox(width: 8.w),
+                    Text(
+                      'Storify',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 18.sp,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 4.w),
+                    Text(
+                      'Admin',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Navigation items
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildNavItem(0, 'Dashboard', Icons.dashboard_outlined),
+                    _buildNavItem(1, 'Orders', Icons.shopping_cart_outlined),
+                    _buildNavItem(2, 'Products', Icons.inventory_2_outlined),
+                    _buildNavItem(3, 'Suppliers', Icons.people_outline),
+                    _buildNavItem(4, 'Customers', Icons.person_outline),
+                    _buildNavItem(5, 'Reports', Icons.bar_chart_outlined),
+                  ],
+                ),
+              ),
+
+              // Right side items
+              Row(
+                children: [
+                  // Notifications
+                  Stack(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          Icons.notifications_outlined,
+                          color: _showNotifications
+                              ? Colors.white
+                              : Colors.white70,
+                          size: 24.sp,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _showNotifications = !_showNotifications;
+                          });
+                        },
+                      ),
+                      if (_unreadCount > 0)
+                        Positioned(
+                          top: 8.h,
+                          right: 8.w,
+                          child: Container(
+                            padding: EdgeInsets.all(4.w),
+                            decoration: const BoxDecoration(
+                              color: Color.fromARGB(255, 105, 65, 198),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              _unreadCount > 9 ? '9+' : _unreadCount.toString(),
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 10.sp,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+
+                  // Profile
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.w),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 16.r,
+                          backgroundColor:
+                              const Color.fromARGB(255, 105, 65, 198)
+                                  .withOpacity(0.2),
+                          child: Text(
+                            'A',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w700,
+                              color: const Color.fromARGB(255, 105, 65, 198),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Text(
+                          'Admin',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white70,
+                            size: 16.sp,
+                          ),
+                          onPressed: () {
+                            // Show profile menu
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Notification popup
+        if (_showNotifications)
+          Positioned(
+            top: 64.h,
+            right: 16.w,
+            child: NotificationPopup(
+              notifications: _notifications,
+              onCloseMenu: () {
+                setState(() {
+                  _showNotifications = false;
+                });
+              },
+            ),
+          ),
+      ],
+    );
   }
 }

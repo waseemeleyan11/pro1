@@ -1,405 +1,265 @@
-// lib/supplier/widgets/navbar.dart
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter_svg/svg.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:storify/GeneralWidgets/profilePopUp.dart';
-import 'package:storify/supplier/widgets/SupplierNotificationPopup.dart';
-import 'package:storify/utilis/notificationModel.dart';
 import 'package:storify/utilis/notification_service.dart';
+import 'package:storify/utilis/notificationModel.dart';
+import 'package:storify/supplier/widgets/SupplierNotificationPopup.dart';
 
-class NavigationBarSupplier extends StatefulWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-  final String? profilePictureUrl; // Add this parameter
+class SupplierNavigationBar extends StatefulWidget {
+  final int selectedIndex;
+  final Function(int) onItemSelected;
 
-  const NavigationBarSupplier({
-    super.key,
-    required this.currentIndex,
-    required this.onTap,
-    this.profilePictureUrl, // Initialize it as optional
-  });
+  const SupplierNavigationBar({
+    Key? key,
+    required this.selectedIndex,
+    required this.onItemSelected,
+  }) : super(key: key);
 
   @override
-  State<NavigationBarSupplier> createState() => _NavigationBarSupplierState();
+  State<SupplierNavigationBar> createState() => _SupplierNavigationBarState();
 }
 
-class _NavigationBarSupplierState extends State<NavigationBarSupplier> {
-  // (Optional) Key for the profile section
-  final GlobalKey _profileKey = GlobalKey();
-
-  OverlayEntry? _overlayEntry;
-  bool _isMenuOpen = false;
-
-  // Notification variables
-  OverlayEntry? _notificationOverlayEntry;
-  bool _isNotificationMenuOpen = false;
+class _SupplierNavigationBarState extends State<SupplierNavigationBar> {
+  bool _showNotifications = false;
   List<NotificationItem> _notifications = [];
   int _unreadCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _setupNotifications();
+  }
 
-    // Load notifications
-    _loadNotifications();
-
-    // Register for notification updates
+  void _setupNotifications() {
+    // Register for notifications updates
     NotificationService()
         .registerNotificationsListChangedCallback(_onNotificationsChanged);
-    NotificationService().registerNewNotificationCallback(_onNewNotification);
+
+    // Get initial unread count
+    _updateUnreadCount();
+  }
+
+  void _onNotificationsChanged(List<NotificationItem> notifications) {
+    setState(() {
+      _notifications = notifications;
+      _unreadCount = notifications.where((n) => !n.isRead).length;
+    });
+  }
+
+  Future<void> _updateUnreadCount() async {
+    final count = await NotificationService().getUnreadNotificationsCount();
+    setState(() {
+      _unreadCount = count;
+    });
   }
 
   @override
   void dispose() {
-    // Unregister notification callbacks
+    // Unregister from notifications updates
     NotificationService()
         .unregisterNotificationsListChangedCallback(_onNotificationsChanged);
-    NotificationService().unregisterNewNotificationCallback(_onNewNotification);
     super.dispose();
-  }
-
-  // Load notifications from service
-  void _loadNotifications() {
-    _notifications = NotificationService().getNotifications();
-    _unreadCount = NotificationService().getUnreadCount();
-    if (mounted) setState(() {});
-  }
-
-  // Callback for when notification list changes
-  void _onNotificationsChanged(List<NotificationItem> notifications) {
-    setState(() {
-      _notifications = notifications;
-      _unreadCount = NotificationService().getUnreadCount();
-    });
-  }
-
-  // Callback for when a new notification arrives
-  void _onNewNotification(NotificationItem notification) {
-    setState(() {
-      _notifications = NotificationService().getNotifications();
-      _unreadCount = NotificationService().getUnreadCount();
-    });
-  }
-
-  void _toggleProfileMenu() {
-    if (_isMenuOpen) {
-      _closeMenu();
-    } else {
-      _openMenu();
-    }
-  }
-
-  void _openMenu() {
-    // Close notification menu if open
-    if (_isNotificationMenuOpen) {
-      _closeNotificationMenu();
-    }
-
-    _overlayEntry = OverlayEntry(
-      builder: (BuildContext context) {
-        return Stack(
-          children: [
-            GestureDetector(
-              onTap: _closeMenu,
-              behavior: HitTestBehavior.translucent,
-              child: Container(
-                color: Colors.transparent,
-                width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.height,
-              ),
-            ),
-            Positioned(
-              right: 40,
-              top: 100,
-              child: Material(
-                color: Colors.transparent,
-                child: Profilepopup(
-                  onCloseMenu: _closeMenu, // Pass the close menu callback
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    Overlay.of(context).insert(_overlayEntry!);
-    setState(() {
-      _isMenuOpen = true;
-    });
-  }
-
-  void _closeMenu() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-    setState(() {
-      _isMenuOpen = false;
-    });
-  }
-
-  void _toggleNotificationMenu() {
-    if (_isNotificationMenuOpen) {
-      _closeNotificationMenu();
-    } else {
-      _openNotificationMenu();
-    }
-  }
-
-  void _openNotificationMenu() {
-    // Close profile menu if open
-    if (_isMenuOpen) {
-      _closeMenu();
-    }
-
-    _notificationOverlayEntry = OverlayEntry(
-      builder: (BuildContext context) {
-        return Stack(
-          children: [
-            GestureDetector(
-              onTap: _closeNotificationMenu,
-              behavior: HitTestBehavior.translucent,
-              child: Container(
-                color: Colors.transparent,
-                width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.height,
-              ),
-            ),
-            Positioned(
-              right: 100, // Adjust position as needed
-              top: 100,
-              child: Material(
-                color: Colors.transparent,
-                child: SupplierNotificationPopup(
-                  onCloseMenu: _closeNotificationMenu,
-                  notifications: _notifications,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    Overlay.of(context).insert(_notificationOverlayEntry!);
-    setState(() {
-      _isNotificationMenuOpen = true;
-    });
-  }
-
-  void _closeNotificationMenu() {
-    _notificationOverlayEntry?.remove();
-    _notificationOverlayEntry = null;
-    setState(() {
-      _isNotificationMenuOpen = false;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: EdgeInsets.only(top: 10.h),
-      width: double.infinity,
-      height: 90.h,
-      color: const Color.fromARGB(255, 29, 41, 57),
-      padding: EdgeInsets.only(left: 45, right: 30),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Left side: Logo + Title
-          Row(
+    return Stack(
+      children: [
+        // Navigation bar
+        Container(
+          height: 64.h,
+          color: const Color.fromARGB(255, 36, 50, 69),
+          child: Row(
             children: [
-              SvgPicture.asset(
-                'assets/images/logo.svg',
-                width: 35.w,
-                height: 35.h,
-              ),
-              SizedBox(width: 12.w),
-              Text(
-                'Storify',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 24.sp,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
+              // Logo
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.w),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.store,
+                      color: const Color.fromARGB(255, 105, 65, 198),
+                      size: 24.sp,
+                    ),
+                    SizedBox(width: 8.w),
+                    Text(
+                      'Storify',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 18.sp,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 4.w),
+                    Text(
+                      'Supplier',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
 
-          // Middle: Navigation Items
-          Row(
-            children: _buildNavItems(),
-          ),
+              // Navigation items
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildNavItem(0, 'Dashboard', Icons.dashboard_outlined),
+                    _buildNavItem(1, 'Orders', Icons.shopping_cart_outlined),
+                    _buildNavItem(2, 'Products', Icons.inventory_2_outlined),
+                    _buildNavItem(3, 'Analytics', Icons.bar_chart_outlined),
+                  ],
+                ),
+              ),
 
-          // Right side: Search, Notifications, Profile
-          Row(
-            children: [
-              // Notifications
-              InkWell(
-                onTap: _toggleNotificationMenu,
-                child: Container(
-                  width: 50.w,
-                  height: 52.h,
-                  decoration: BoxDecoration(
-                    color: const Color.fromARGB(255, 36, 50, 69),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Stack(
+              // Right side items
+              Row(
+                children: [
+                  // Notifications
+                  Stack(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.all(13.0),
-                        child: SvgPicture.asset(
-                          'assets/images/noti.svg',
-                          width: 20.w,
-                          height: 20.h,
-                          // ignore: deprecated_member_use
-                          color: _isNotificationMenuOpen
-                              ? const Color.fromARGB(255, 105, 65, 198)
-                              : const Color.fromARGB(255, 105, 123, 123),
+                      IconButton(
+                        icon: Icon(
+                          Icons.notifications_outlined,
+                          color: _showNotifications
+                              ? Colors.white
+                              : Colors.white70,
+                          size: 24.sp,
                         ),
+                        onPressed: () {
+                          setState(() {
+                            _showNotifications = !_showNotifications;
+                          });
+                        },
                       ),
                       if (_unreadCount > 0)
                         Positioned(
-                          top: 10,
-                          right: 10,
+                          top: 8.h,
+                          right: 8.w,
                           child: Container(
-                            width: 10.w,
-                            height: 10.h,
+                            padding: EdgeInsets.all(4.w),
                             decoration: const BoxDecoration(
-                              color: Colors.red,
+                              color: Color.fromARGB(255, 105, 65, 198),
                               shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              _unreadCount > 9 ? '9+' : _unreadCount.toString(),
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 10.sp,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
                     ],
                   ),
-                ),
-              ),
-              SizedBox(width: 14.w),
-              // Profile + Arrow
-              InkWell(
-                key: _profileKey,
-                onTap: _toggleProfileMenu,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                      ),
-                      child: ClipRRect(
-                        borderRadius:
-                            BorderRadius.circular(25), // Make it circular
-                        child: widget.profilePictureUrl != null &&
-                                widget.profilePictureUrl!.isNotEmpty
-                            ? CachedNetworkImage(
-                                imageUrl: widget.profilePictureUrl!,
-                                fit: BoxFit.cover,
-                                placeholder: (context, url) => Container(
-                                  color: const Color.fromARGB(255, 36, 50, 69),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: const Color.fromARGB(
-                                            255, 105, 65, 198),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                errorWidget: (context, url, error) {
-                                  print(
-                                      'Error loading profile image: $error from URL: $url');
-                                  return Image.asset('assets/images/me.png',
-                                      fit: BoxFit.cover);
-                                },
-                              )
-                            : Image.asset('assets/images/me.png',
-                                fit: BoxFit.cover),
-                      ),
+
+                  // Profile
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.w),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 16.r,
+                          backgroundColor:
+                              const Color.fromARGB(255, 105, 65, 198)
+                                  .withOpacity(0.2),
+                          child: Text(
+                            'S',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w700,
+                              color: const Color.fromARGB(255, 105, 65, 198),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Text(
+                          'Supplier',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white70,
+                            size: 16.sp,
+                          ),
+                          onPressed: () {
+                            // Show profile menu
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 2),
-                    Icon(
-                      _isMenuOpen ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-                      size: 35,
-                      color: const Color.fromARGB(255, 105, 123, 123),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        ),
+
+        // Notification popup
+        if (_showNotifications)
+          Positioned(
+            top: 64.h,
+            right: 16.w,
+            child: SupplierNotificationPopup(
+              notifications: _notifications,
+              onCloseMenu: () {
+                setState(() {
+                  _showNotifications = false;
+                });
+              },
+            ),
+          ),
+      ],
     );
   }
 
-  /// Helper to build the middle navigation items
-  List<Widget> _buildNavItems() {
-    final List<String> navItems = ['Orders', 'Products'];
+  Widget _buildNavItem(int index, String label, IconData icon) {
+    final isSelected = widget.selectedIndex == index;
 
-    final List<String?> navIcons = [
-      'assets/images/orders.svg',
-      'assets/images/products.svg'
-    ];
-
-    return navItems.asMap().entries.map((entry) {
-      final index = entry.key;
-      final text = entry.value;
-      final bool isSelected = (index == widget.currentIndex);
-
-      return MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: () => widget.onTap(index),
-          child: Container(
-            margin: EdgeInsets.only(left: 24.w),
-            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-            decoration: BoxDecoration(
+    return InkWell(
+      onTap: () => widget.onItemSelected(index),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
               color: isSelected
-                  ? const Color.fromARGB(255, 105, 65, 198) // Purple
+                  ? const Color.fromARGB(255, 105, 65, 198)
                   : Colors.transparent,
-              border: Border.all(
-                color: isSelected
-                    ? Colors.transparent
-                    : const Color.fromARGB(255, 34, 53, 62),
-                width: 1,
-              ),
-              borderRadius: BorderRadius.circular(30.r),
-            ),
-            child: Row(
-              children: [
-                if (navIcons[index] != null && navIcons[index]!.isNotEmpty)
-                  SvgPicture.asset(
-                    navIcons[index]!,
-                    width: 24.w,
-                    height: 24.h,
-                    // ignore: deprecated_member_use
-                    color: isSelected
-                        ? Colors.white
-                        : const Color.fromARGB(255, 105, 123, 123),
-                  ),
-                if (navIcons[index] != null && navIcons[index]!.isNotEmpty)
-                  SizedBox(width: 9.w),
-                Text(
-                  text,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 15.sp,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w700,
-                    color: isSelected
-                        ? Colors.white
-                        : const Color.fromARGB(255, 105, 123, 123),
-                  ),
-                ),
-              ],
+              width: 2,
             ),
           ),
         ),
-      );
-    }).toList();
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : Colors.white70,
+              size: 20.sp,
+            ),
+            SizedBox(width: 8.w),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14.sp,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color: isSelected ? Colors.white : Colors.white70,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

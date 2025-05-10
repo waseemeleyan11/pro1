@@ -1,428 +1,346 @@
-// lib/utilis/notificationService.dart
-import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'package:storify/utilis/notificationModel.dart';
-import 'package:storify/Registration/Widgets/auth_service.dart';
+import 'notificationModel.dart';
+import 'notificationDatabaseService.dart';
 
 class NotificationService {
+  // Singleton pattern
   static final NotificationService _instance = NotificationService._internal();
-  factory NotificationService() => _instance;
+
+  factory NotificationService() {
+    return _instance;
+  }
+
   NotificationService._internal();
 
-  // Callback functions that UI can register to be notified of new notifications
-  List<Function(NotificationItem)> _newNotificationCallbacks = [];
-  List<Function(List<NotificationItem>)> _notificationsListChangedCallbacks =
-      [];
+  final NotificationDatabaseService _databaseService =
+      NotificationDatabaseService();
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+  final List<Function(List<NotificationItem>)>
+      _notificationsListChangedCallbacks = [];
+  List<NotificationItem> _cachedNotifications = [];
 
-  // In-memory store of notifications
-  List<NotificationItem> _notifications = [];
+  // Initialize the notification service
+  Future<void> initialize() async {
+    // Initialize Firebase if not already initialized
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      print('Firebase already initialized or error: $e');
+    }
 
-  // Initialize Firebase Messaging
-  static Future<void> initialize() async {
-    // Request permission
-    NotificationSettings settings =
-        await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
+    // Initialize local notifications
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings();
+
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
     );
 
-    print('User granted permission: ${settings.authorizationStatus}');
-
-    // Get token
-    String? token = await FirebaseMessaging.instance.getToken();
-    print('FCM Token: $token');
-
-    // Load saved notifications from SharedPreferences
-    await NotificationService().loadNotifications();
-
-    // Register foreground message handler
-    FirebaseMessaging.onMessage.listen(
-      NotificationService()._handleForegroundMessage,
+    await _localNotifications.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        // Handle notification tap
+        print('Notification tapped: ${response.payload}');
+      },
     );
 
-    // Register background/terminated message handlers
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // Request permission for push notifications
+    await _requestNotificationPermissions();
 
-    // Send token to backend
-    await NotificationService().sendTokenToBackend(token);
+    // Listen for notifications based on user role
+    _listenForNotifications();
+
+    // Set up Firebase Messaging handlers
+    _setupFirebaseMessaging();
   }
 
-  // Background message handler
-  static Future<void> _firebaseMessagingBackgroundHandler(
-      RemoteMessage message) async {
-    print("Handling a background message: ${message.messageId}");
-    // Store the notification for when app is opened
-    final notification = NotificationItem.fromFirebaseMessage(message);
-    await _storeBackgroundNotification(notification);
-  }
-
-  // Store background notifications
-  static Future<void> _storeBackgroundNotification(
-      NotificationItem notification) async {
+  Future<void> _requestNotificationPermissions() async {
+    // Request permission for Firebase Messaging
     try {
-      final prefs = await SharedPreferences.getInstance();
-
-      // Get existing background notifications
-      List<Map<String, dynamic>> bgNotifications = [];
-      String? existingData = prefs.getString('background_notifications');
-      if (existingData != null) {
-        bgNotifications =
-            List<Map<String, dynamic>>.from(jsonDecode(existingData));
-      }
-
-      // Convert to storable format
-      Map<String, dynamic> notificationData = {
-        'id': notification.id,
-        'title': notification.title,
-        'message': notification.message,
-        'timeAgo': notification.timeAgo,
-        'isRead': notification.isRead,
-        'timestamp': DateTime.now().toIso8601String(),
-      };
-
-      // Add new notification
-      bgNotifications.add(notificationData);
-
-      // Store back
-      await prefs.setString(
-          'background_notifications', jsonEncode(bgNotifications));
-    } catch (e) {
-      print('Error storing background notification: $e');
-    }
-  }
-
-  // Process any background notifications when app starts
-  Future<void> processBackgroundNotifications() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      String? existingData = prefs.getString('background_notifications');
-
-      if (existingData != null) {
-        List<dynamic> bgNotifications = jsonDecode(existingData);
-
-        for (var notificationData in bgNotifications) {
-          // Convert to NotificationItem
-          final notification = NotificationItem(
-            id: notificationData['id'],
-            title: notificationData['title'],
-            message: notificationData['message'],
-            timeAgo: _getTimeAgo(DateTime.parse(notificationData['timestamp'])),
-            isRead: notificationData['isRead'] ?? false,
-          );
-
-          // Add to list
-          _notifications.add(notification);
-        }
-
-        // Clear background notifications
-        await prefs.remove('background_notifications');
-
-        // Save merged notifications
-        await saveNotifications();
-
-        // Notify listeners
-        for (var callback in _notificationsListChangedCallbacks) {
-          callback(_notifications);
-        }
-      }
-    } catch (e) {
-      print('Error processing background notifications: $e');
-    }
-  }
-
-  // Send the FCM token to your backend
-  Future<void> sendTokenToBackend(String? token) async {
-    if (token == null) return;
-
-    try {
-      // Get auth headers
-      final headers = await AuthService.getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
-
-      // Get user's info from SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      final currentRole = await AuthService.getCurrentRole() ?? '';
-      final supplierId = prefs.getInt('supplierId');
-
-      // Create request body
-      final body = {
-        'token': token,
-        'role': currentRole,
-        if (supplierId != null) 'supplierId': supplierId,
-      };
-
-      // Send to your backend
-      final response = await http.post(
-        Uri.parse(
-            'https://finalproject-a5ls.onrender.com/notifications/register-token'),
-        headers: headers,
-        body: json.encode(body),
+      final settings = await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        announcement: false,
+        badge: true,
+        carPlay: false,
+        criticalAlert: false,
+        provisional: false,
+        sound: true,
       );
 
-      if (response.statusCode == 200) {
-        print('Successfully registered FCM token with backend');
-      } else {
-        print('Failed to register FCM token: ${response.statusCode}');
-      }
+      print(
+          'User granted notification permission: ${settings.authorizationStatus}');
     } catch (e) {
-      print('Error sending token to backend: $e');
+      print('Error requesting notification permissions: $e');
     }
   }
 
-  // Register callbacks for UI to be notified when new notifications arrive
-  void registerNewNotificationCallback(Function(NotificationItem) callback) {
-    _newNotificationCallbacks.add(callback);
+  void _listenForNotifications() async {
+    final userRole = await _databaseService.getCurrentUserRole();
+
+    // Listen for notifications from Firestore
+    _databaseService.getNotificationsForRole(userRole).listen((notifications) {
+      _cachedNotifications = notifications;
+
+      // Notify all registered callbacks
+      for (var callback in _notificationsListChangedCallbacks) {
+        callback(notifications);
+      }
+    });
   }
 
+  void _setupFirebaseMessaging() {
+    // Handle foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('Got a message whilst in the foreground!');
+      print('Message data: ${message.data}');
+
+      if (message.notification != null) {
+        print('Message also contained a notification: ${message.notification}');
+        _showFirebaseNotification(message);
+      }
+    });
+
+    // Handle notification tap when app is in background but open
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print('A notification was tapped: ${message.data}');
+      // Navigate to specific screen if needed
+    });
+
+    // Get FCM token and save it
+    _getFCMToken();
+  }
+
+  Future<void> _getFCMToken() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        print('FCM Token: $token');
+        // Save token to shared preferences or database
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fcmToken', token);
+      }
+    } catch (e) {
+      print('Error getting FCM token: $e');
+    }
+  }
+
+  Future<void> _showFirebaseNotification(RemoteMessage message) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'storify_notifications',
+      'Storify Notifications',
+      channelDescription: 'Notifications from Storify app',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+
+    const NotificationDetails platformChannelSpecifics =
+        NotificationDetails(android: androidPlatformChannelSpecifics);
+
+    await _localNotifications.show(
+      message.hashCode,
+      message.notification?.title ?? 'New Notification',
+      message.notification?.body ?? '',
+      platformChannelSpecifics,
+      payload: message.data.toString(),
+    );
+  }
+
+  // Register a callback to be notified when the notifications list changes
   void registerNotificationsListChangedCallback(
       Function(List<NotificationItem>) callback) {
     _notificationsListChangedCallbacks.add(callback);
+
+    // Immediately call with cached notifications if available
+    if (_cachedNotifications.isNotEmpty) {
+      callback(_cachedNotifications);
+    }
   }
 
-  // Unregister callbacks when they're no longer needed
-  void unregisterNewNotificationCallback(Function(NotificationItem) callback) {
-    _newNotificationCallbacks.remove(callback);
-  }
-
+  // Unregister a callback
   void unregisterNotificationsListChangedCallback(
       Function(List<NotificationItem>) callback) {
     _notificationsListChangedCallbacks.remove(callback);
   }
 
-  // Handle incoming foreground messages
-  void _handleForegroundMessage(RemoteMessage message) {
-    print('Got a message whilst in the foreground!');
-    print('Message data: ${message.data}');
-
-    if (message.notification != null) {
-      print('Message also contained a notification: ${message.notification}');
-
-      // Convert to NotificationItem
-      final notification = NotificationItem.fromFirebaseMessage(message);
-
-      // Add to list
-      _notifications.add(notification);
-
-      // Save to SharedPreferences
-      saveNotifications();
-
-      // Notify listeners
-      for (var callback in _newNotificationCallbacks) {
-        callback(notification);
-      }
-
-      for (var callback in _notificationsListChangedCallbacks) {
-        callback(_notifications);
-      }
-    }
-  }
-
-  // Get all notifications
+  // Get all notifications for the current user
   List<NotificationItem> getNotifications() {
-    // Sort by timestamp (newest first) and return a copy
-    final notifications = List<NotificationItem>.from(_notifications);
-    notifications.sort((a, b) {
-      // Parse the timeAgo and compare - this is simplified and would need real timestamp logic
-      return b.id.compareTo(a.id); // Using id as a proxy for timestamp for now
-    });
-    return notifications;
+    return _cachedNotifications;
   }
 
-  // Get unread count
-  int getUnreadCount() {
-    return _notifications.where((n) => !n.isRead).length;
+  // Show a local notification
+  Future<void> showLocalNotification(String title, String body) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'storify_notifications',
+      'Storify Notifications',
+      channelDescription: 'Notifications from Storify app',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+
+    const NotificationDetails platformChannelSpecifics =
+        NotificationDetails(android: androidPlatformChannelSpecifics);
+
+    await _localNotifications.show(
+      DateTime.now().millisecond,
+      title,
+      body,
+      platformChannelSpecifics,
+    );
   }
 
-  // Mark notification as read
-  Future<void> markAsRead(String id) async {
-    final index = _notifications.indexWhere((n) => n.id == id);
-    if (index != -1) {
-      // Create a new notification with isRead set to true
-      final updatedNotification = NotificationItem(
-        id: _notifications[index].id,
-        title: _notifications[index].title,
-        message: _notifications[index].message,
-        timeAgo: _notifications[index].timeAgo,
-        icon: _notifications[index].icon,
-        iconBackgroundColor: _notifications[index].iconBackgroundColor,
-        isRead: true,
-        onTap: _notifications[index].onTap,
-      );
+  // Send notification when an order is created (admin to supplier)
+  Future<void> sendOrderCreatedNotification(
+    String supplierId,
+    String orderId,
+    String orderDetails,
+  ) async {
+    final notification = NotificationItem(
+      id: '',
+      title: 'New Order Created',
+      message: 'A new order #$orderId has been created. $orderDetails',
+      userRole: 'supplier',
+      userId: supplierId,
+      timestamp: DateTime.now(),
+      relatedId: orderId,
+    );
 
-      // Replace in list
-      _notifications[index] = updatedNotification;
+    await _databaseService.addNotification(notification);
 
-      await saveNotifications();
+    // Show local notification if the current user is the supplier
+    final prefs = await SharedPreferences.getInstance();
+    final currentRole = prefs.getString('userRole') ?? '';
+    final currentId = prefs.getString('userId') ?? '';
 
-      // Notify listeners
-      for (var callback in _notificationsListChangedCallbacks) {
-        callback(_notifications);
-      }
+    if (currentRole == 'supplier' &&
+        (currentId == supplierId || supplierId.isEmpty)) {
+      await showLocalNotification(notification.title, notification.message);
     }
+  }
+
+  // Send notification when an order is accepted (supplier to admin)
+  Future<void> sendOrderAcceptedNotification(
+    String orderId,
+    String supplierName,
+  ) async {
+    final notification = NotificationItem(
+      id: '',
+      title: 'Order Accepted',
+      message: 'Order #$orderId has been accepted by $supplierName',
+      userRole: 'admin',
+      timestamp: DateTime.now(),
+      relatedId: orderId,
+    );
+
+    await _databaseService.addNotification(notification);
+
+    // Show local notification if the current user is an admin
+    final prefs = await SharedPreferences.getInstance();
+    final currentRole = prefs.getString('userRole') ?? '';
+
+    if (currentRole == 'admin') {
+      await showLocalNotification(notification.title, notification.message);
+    }
+  }
+
+  // Send notification when an order is rejected (supplier to admin)
+  Future<void> sendOrderRejectedNotification(
+    String orderId,
+    String supplierName,
+    String reason,
+  ) async {
+    final notification = NotificationItem(
+      id: '',
+      title: 'Order Rejected',
+      message:
+          'Order #$orderId has been rejected by $supplierName. Reason: $reason',
+      userRole: 'admin',
+      timestamp: DateTime.now(),
+      relatedId: orderId,
+    );
+
+    await _databaseService.addNotification(notification);
+
+    // Show local notification if the current user is an admin
+    final prefs = await SharedPreferences.getInstance();
+    final currentRole = prefs.getString('userRole') ?? '';
+
+    if (currentRole == 'admin') {
+      await showLocalNotification(notification.title, notification.message);
+    }
+  }
+
+  // Send notification when order status changes (admin to customer)
+  Future<void> sendOrderStatusUpdateNotification(
+    String orderId,
+    String newStatus,
+    String customerEmail,
+  ) async {
+    String message;
+    switch (newStatus.toLowerCase()) {
+      case 'prepared':
+        message =
+            'Your order #$orderId has been prepared and is ready for delivery.';
+        break;
+      case 'on_theway':
+        message = 'Your order #$orderId is on the way to you.';
+        break;
+      case 'delivered':
+        message =
+            'Your order #$orderId has been delivered. Thank you for your purchase!';
+        break;
+      default:
+        message = 'Your order #$orderId status has been updated to $newStatus.';
+    }
+
+    final notification = NotificationItem(
+      id: '',
+      title: 'Order Status Update',
+      message: message,
+      userRole: 'customer',
+      userId: customerEmail, // Using email as ID for customers
+      timestamp: DateTime.now(),
+      relatedId: orderId,
+    );
+
+    await _databaseService.addNotification(notification);
+
+    // Show local notification if the current user is the customer
+    final prefs = await SharedPreferences.getInstance();
+    final currentRole = prefs.getString('userRole') ?? '';
+    final currentEmail = prefs.getString('userEmail') ?? '';
+
+    if (currentRole == 'customer' && currentEmail == customerEmail) {
+      await showLocalNotification(notification.title, notification.message);
+    }
+  }
+
+  // Mark a notification as read
+  Future<void> markNotificationAsRead(String notificationId) async {
+    await _databaseService.markAsRead(notificationId);
   }
 
   // Mark all notifications as read
-  Future<void> markAllAsRead() async {
-    List<NotificationItem> updatedList = [];
-
-    for (var notification in _notifications) {
-      // Create a new notification with isRead set to true
-      updatedList.add(NotificationItem(
-        id: notification.id,
-        title: notification.title,
-        message: notification.message,
-        timeAgo: notification.timeAgo,
-        icon: notification.icon,
-        iconBackgroundColor: notification.iconBackgroundColor,
-        isRead: true,
-        onTap: notification.onTap,
-      ));
-    }
-
-    _notifications = updatedList;
-    await saveNotifications();
-
-    // Notify listeners
-    for (var callback in _notificationsListChangedCallbacks) {
-      callback(_notifications);
-    }
+  Future<void> markAllNotificationsAsRead() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentRole = prefs.getString('userRole') ?? 'customer';
+    await _databaseService.markAllAsRead(currentRole);
   }
 
-  // Send a notification to a supplier
-  Future<void> sendNotificationToSupplier(int supplierId, String title,
-      String message, Map<String, dynamic> additionalData) async {
-    try {
-      // Get auth headers
-      final headers = await AuthService.getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
-
-      // Create request body
-      final body = {
-        'supplierId': supplierId,
-        'title': title,
-        'body': message,
-        'data': additionalData,
-      };
-
-      // Send to your backend
-      final response = await http.post(
-        Uri.parse(
-            'https://finalproject-a5ls.onrender.com/notifications/send-to-supplier'),
-        headers: headers,
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        print('Successfully sent notification to supplier');
-      } else {
-        print('Failed to send notification: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error sending notification: $e');
-    }
-  }
-
-  // Send a notification to admin
-  Future<void> sendNotificationToAdmin(
-      String title, String message, Map<String, dynamic> additionalData) async {
-    try {
-      // Get auth headers
-      final headers = await AuthService.getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
-
-      // Create request body
-      final body = {
-        'title': title,
-        'body': message,
-        'data': additionalData,
-      };
-
-      // Send to your backend
-      final response = await http.post(
-        Uri.parse(
-            'https://finalproject-a5ls.onrender.com/notifications/send-to-admin'),
-        headers: headers,
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        print('Successfully sent notification to admin');
-      } else {
-        print('Failed to send notification: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error sending notification: $e');
-    }
-  }
-
-  // Save notifications to SharedPreferences
-  Future<void> saveNotifications() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      List<Map<String, dynamic>> notificationsJson = _notifications
-          .map((notification) => {
-                'id': notification.id,
-                'title': notification.title,
-                'message': notification.message,
-                'timeAgo': notification.timeAgo,
-                'isRead': notification.isRead,
-                // Cannot serialize icon, iconBackgroundColor, and onTap
-              })
-          .toList();
-
-      await prefs.setString('notifications', jsonEncode(notificationsJson));
-    } catch (e) {
-      print('Error saving notifications: $e');
-    }
-  }
-
-  // Load notifications from SharedPreferences
-  Future<void> loadNotifications() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final notificationsJson = prefs.getString('notifications');
-
-      if (notificationsJson != null) {
-        final List decodedList = jsonDecode(notificationsJson);
-        _notifications = decodedList
-            .map((item) => NotificationItem(
-                  id: item['id'],
-                  title: item['title'],
-                  message: item['message'],
-                  timeAgo: item['timeAgo'],
-                  isRead: item['isRead'] ?? false,
-                  icon: Icons.notifications, // Default icon
-                  iconBackgroundColor:
-                      const Color.fromARGB(255, 105, 65, 198), // Default color
-                ))
-            .toList();
-      }
-    } catch (e) {
-      print('Error loading notifications: $e');
-      _notifications = [];
-    }
-  }
-
-  // Helper to calculate time ago
-  String _getTimeAgo(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inSeconds < 60) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes} min ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours} hours ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else {
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
-    }
+  // Get unread notifications count
+  Future<int> getUnreadNotificationsCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentRole = prefs.getString('userRole') ?? 'customer';
+    return await _databaseService.getUnreadNotificationsCount(currentRole);
   }
 }
